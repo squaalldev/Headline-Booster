@@ -48,6 +48,7 @@ python app.py
 ├── README.md
 └── docs/
     ├── CODEX_NOTES.md
+    ├── COMMIT_LOG.md
     └── FIELD_NOTES.md
 ```
 
@@ -58,3 +59,5 @@ GitHub repo: TODO
 ## Built with Codex
 
 This app was built with help from OpenAI Codex as a coding agent.
+
+Codex migration evidence is documented in `docs/CODEX_NOTES.md` and `docs/COMMIT_LOG.md`.

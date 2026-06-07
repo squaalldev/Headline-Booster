@@ -32,6 +32,7 @@ The useful visual ideas were the left sidebar, central chat area, soft brown pal
 - `README.md`: rewritten for Headline Booster and hackathon alignment.
 - `docs/CODEX_NOTES.md`: documents repository analysis and migration decisions.
 - `docs/FIELD_NOTES.md`: documents product problem, small-model angle, and future work.
+- `docs/COMMIT_LOG.md`: records the relevant Git commits for hackathon/Codex review.
 
 ## Current status
 
