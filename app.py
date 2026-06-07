@@ -421,7 +421,7 @@ def reset_chat():
 
 
 def build_app() -> gr.Blocks:
-    with gr.Blocks(title="Headline Booster") as demo:
+    with gr.Blocks(css=CUSTOM_CSS, title="Headline Booster", theme=gr.themes.Soft()) as demo:
         chat_state = gr.State([])
         with gr.Column(elem_id="headline-app"):
             with gr.Row(elem_id="headline-layout"):
@@ -470,6 +470,7 @@ def build_app() -> gr.Blocks:
                     chatbot = gr.Chatbot(
                         value=[],
                         elem_id="chatbot",
+                        type="messages",
                         show_label=False,
                         height=455,
                         avatar_images=(None, None),
@@ -502,8 +503,5 @@ def build_app() -> gr.Blocks:
     return demo
 
 
-demo = build_app()
-
-
 if __name__ == "__main__":
-    demo.launch(css=CUSTOM_CSS, theme=gr.themes.Soft())
+    build_app().launch()
