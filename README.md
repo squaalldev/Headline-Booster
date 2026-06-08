@@ -1,3 +1,14 @@
+---
+license: mit
+title: Headline Booster
+sdk: gradio
+emoji: 🏆
+colorFrom: yellow
+colorTo: red
+pinned: true
+short_description: Make titles with AI
+sdk_version: 6.16.0
+---
 # Headline Booster
 
 Headline Booster is a small-model-ready Gradio chatbot that helps entrepreneurs create clearer, stronger headlines in seconds.
@@ -35,14 +46,10 @@ python app.py
 ├── app.py
 ├── requirements.txt
 ├── README.md
-├── frontend/
-│   ├── README.md
-│   └── styles.css
 └── docs/
     ├── CODEX_NOTES.md
     ├── COMMIT_LOG.md
-    ├── FIELD_NOTES.md
-    └── FRONTEND_REFERENCE_NOTES.md
+    └── FIELD_NOTES.md
 ```
 
 ## Source code
@@ -53,4 +60,4 @@ GitHub repo: TODO
 
 This app was built with help from OpenAI Codex as a coding agent.
 
-Codex migration evidence is documented in `docs/CODEX_NOTES.md` and `docs/COMMIT_LOG.md`. Visual adaptation notes are documented in `docs/FRONTEND_REFERENCE_NOTES.md`.
+Codex migration evidence is documented in `docs/CODEX_NOTES.md` and `docs/COMMIT_LOG.md`.
