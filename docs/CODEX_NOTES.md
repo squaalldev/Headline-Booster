@@ -37,6 +37,10 @@ The useful visual ideas were the left sidebar, central chat area, soft brown pal
 - `docs/FRONTEND_REFERENCE_NOTES.md`: explains how the Road B frontend reference was used as visual inspiration without copying product logic.
 - `docs/TINY_TITAN_PLAN.md`: documents the Qwen2.5-1.5B real-model path and fallback plan.
 
+## Chatbot interaction update
+
+Codex adapted the useful behavior from the Streamlit reference without reintroducing Streamlit or external APIs: short greetings now start the four-question flow, assistant output streams into Gradio, sidebar examples submit real chat turns, and a small JSON file stores the active chat history until the user starts a new conversation.
+
 ## Current status
 
 Headline Booster is now a simple Gradio app that can run with `python app.py`. It defaults to mock mode locally, defaults to the tiny model on Hugging Face Spaces, and can switch runtime from the UI selector or with `USE_REAL_MODEL=true`. It asks for only four data points when input is incomplete and returns Spanish headline options when the request is complete.

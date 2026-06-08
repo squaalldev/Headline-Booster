@@ -8,6 +8,7 @@ venv/
 # Hugging Face / local runtime
 logs/
 *.log
+data/
 
 # IDE
 .vscode/

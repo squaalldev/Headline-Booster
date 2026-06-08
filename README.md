@@ -59,6 +59,15 @@ python app.py
     └── TINY_TITAN_PLAN.md
 ```
 
+## Chatbot behavior
+
+Headline Booster now behaves like a focused chatbot instead of a static generator:
+
+- Short greetings like `hola` start the conversation and ask only for the four required data points.
+- Responses stream into the chat area so the user sees the assistant writing instead of waiting for a static block.
+- Sidebar examples are clickable chat turns that fill the conversation with real headline requests.
+- A lightweight JSON history is saved locally for the current namespace and cleared with `+ Nueva conversación`; no login, database, payments, or external API is required.
+
 ## Tiny Titan model mode
 
 The app defaults to mock mode locally, but defaults to the tiny model on Hugging Face Spaces when Space environment variables are present. To force the Tiny Titan model path, configure:

@@ -7,9 +7,10 @@ Qwen/Qwen2.5-1.5B-Instruct, with Qwen/Qwen2.5-3B-Instruct as the quality fallbac
 
 from __future__ import annotations
 
+import json
 import os
 import re
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,10 @@ STYLE_HEADLINES = {
 }
 
 CUSTOM_CSS = (Path(__file__).parent / "frontend" / "styles.css").read_text(encoding="utf-8")
+DATA_DIR = Path(os.getenv("HEADLINE_BOOSTER_DATA_DIR", "data"))
+CHAT_HISTORY_DIR = DATA_DIR / "chat_histories"
+CHAT_NAMESPACE = os.getenv("CHATBOT_USER_NAMESPACE", "default_user")
+STREAM_BATCH_SIZE = int(os.getenv("STREAM_BATCH_SIZE", "4"))
 
 MODEL_ID = os.getenv("MODEL_ID", "Qwen/Qwen2.5-1.5B-Instruct")
 MODEL_FALLBACK_ID = os.getenv("MODEL_FALLBACK_ID", "Qwen/Qwen2.5-3B-Instruct")
@@ -111,6 +116,15 @@ DEFAULT_RUNTIME = (
 )
 RUNTIME_LABEL = "real model" if DEFAULT_RUNTIME == MODEL_RUNTIME else "mock mode"
 MODEL_BADGE = MODEL_ID.split("/")[-1] if DEFAULT_RUNTIME == MODEL_RUNTIME else "small-model ready"
+EXAMPLE_PROMPTS = {
+    "Taller de Diseño Humano": "Vendo un taller de Diseño Humano para mujeres emprendedoras que quieren tomar decisiones con más claridad. Quiero 10 encabezados.",
+    "Curso de Copywriting": "Vendo un curso de copywriting para freelancers que quieren conseguir mejores clientes y escribir mensajes que vendan sin sonar agresivos. Quiero 10 encabezados.",
+    "Web para Coaches": "Vendo diseño de páginas web para coaches que quieren verse más profesionales y convertir más visitas en llamadas de venta. Quiero 8 encabezados.",
+    "Mentoría para Emprendedoras": "Vendo una mentoría para mujeres emprendedoras que quieren ordenar su oferta, comunicar mejor su valor y vender con más seguridad. Quiero 12 encabezados.",
+}
+GREETING_MESSAGE = f"""¡Perfecto! Puedo ayudarte a crear encabezados claros y persuasivos.
+
+{MISSING_INFO_MESSAGE}"""
 
 
 def _normalize(text: str) -> str:
@@ -142,6 +156,68 @@ def _extract_count(user_message: str) -> int:
         if re.search(rf"\b{word}\b", text):
             return value
     return 10
+
+
+def _history_path(namespace: str = CHAT_NAMESPACE) -> Path:
+    safe_namespace = re.sub(r"[^a-zA-Z0-9_.-]", "_", namespace) or "default_user"
+    return CHAT_HISTORY_DIR / f"{safe_namespace}.json"
+
+
+def load_chat_history(namespace: str = CHAT_NAMESPACE) -> list[dict[str, Any]]:
+    """Loads a small single-user chat history from disk when available."""
+    path = _history_path(namespace)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict) and "role" in item and "content" in item]
+
+
+def save_chat_history(history: list[dict[str, Any]], namespace: str = CHAT_NAMESPACE) -> None:
+    """Persists the latest simple chat history without adding databases or login."""
+    try:
+        CHAT_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+        _history_path(namespace).write_text(
+            json.dumps(history, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        # Persistence should never break the chatbot on read-only or ephemeral runtimes.
+        return
+
+
+def clear_chat_history(namespace: str = CHAT_NAMESPACE) -> None:
+    """Removes the persisted simple chat history for a new conversation."""
+    path = _history_path(namespace)
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        return
+
+
+def is_greeting(text: str, history: list[dict[str, Any]] | None = None) -> bool:
+    """Detects a short first-message greeting and starts the four-data flow."""
+    normalized = _normalize(text)
+    greetings = [
+        "hola",
+        "hey",
+        "saludos",
+        "buenos días",
+        "buenas tardes",
+        "buenas noches",
+        "hi",
+        "hello",
+    ]
+    return (
+        not history
+        and len(normalized.split()) < 4
+        and any(greeting in normalized for greeting in greetings)
+    )
 
 
 def is_request_complete(user_message: str) -> bool:
@@ -416,48 +492,77 @@ def _last_complete_user_request(history: list[dict[str, Any]]) -> str:
     return ""
 
 
-def chat_response(message, history, runtime_mode):
-    """
-    Maneja la conversación.
-    Si falta información, pide solo 4 datos.
-    Si hay información suficiente, genera encabezados con el modelo tiny o fallback mock.
-    Si el usuario pide ajuste de tono, genera una nueva versión con el runtime elegido.
-    """
-    history = history or []
-    runtime_mode = runtime_mode or DEFAULT_RUNTIME
-    clean_message = (message or "").strip()
-    if not clean_message:
-        return history, "", gr.update(visible=len(history) == 0), history
-
+def _resolve_bot_message(clean_message: str, history: list[dict[str, Any]], runtime_mode: str) -> str:
     style = detect_style_request(clean_message)
     previous_request = _last_complete_user_request(history)
     is_style_adjustment = style != "default" and previous_request and not is_request_complete(clean_message)
 
+    if is_greeting(clean_message, history):
+        return GREETING_MESSAGE
     if is_style_adjustment:
-        bot_message = generate_headlines(previous_request, style=style, runtime_mode=runtime_mode)
-    elif is_request_complete(clean_message):
-        bot_message = generate_headlines(clean_message, style=style, runtime_mode=runtime_mode)
-    else:
-        bot_message = MISSING_INFO_MESSAGE
+        return generate_headlines(previous_request, style=style, runtime_mode=runtime_mode)
+    if is_request_complete(clean_message):
+        return generate_headlines(clean_message, style=style, runtime_mode=runtime_mode)
+    return MISSING_INFO_MESSAGE
 
-    updated_history = [
-        *history,
-        {"role": "user", "content": clean_message},
-        {"role": "assistant", "content": bot_message},
-    ]
-    return updated_history, "", gr.update(visible=False), updated_history
+
+def _stream_assistant_message(
+    base_history: list[dict[str, Any]],
+    final_response: str,
+    clear_input: str = "",
+):
+    streamed_response = ""
+    assistant_index = len(base_history) - 1
+    batch_size = max(1, STREAM_BATCH_SIZE)
+
+    for index, character in enumerate(final_response, start=1):
+        streamed_response += character
+        if index % batch_size == 0 or index == len(final_response):
+            working_history = [*base_history]
+            working_history[assistant_index] = {"role": "assistant", "content": streamed_response + "▌"}
+            yield working_history, clear_input, gr.update(visible=False), working_history
+
+    final_history = [*base_history]
+    final_history[assistant_index] = {"role": "assistant", "content": final_response}
+    save_chat_history(final_history)
+    yield final_history, clear_input, gr.update(visible=False), final_history
+
+
+def chat_response(message, history, runtime_mode):
+    """Streams the conversation response and persists the simple chat history."""
+    history = history or []
+    runtime_mode = runtime_mode or DEFAULT_RUNTIME
+    clean_message = (message or "").strip()
+    if not clean_message:
+        yield history, "", gr.update(visible=len(history) == 0), history
+        return
+
+    user_entry = {"role": "user", "content": clean_message}
+    assistant_entry = {"role": "assistant", "content": "Generando respuesta..."}
+    working_history = [*history, user_entry, assistant_entry]
+    yield working_history, "", gr.update(visible=False), working_history
+
+    bot_message = _resolve_bot_message(clean_message, history, runtime_mode)
+    yield from _stream_assistant_message(working_history, bot_message)
+
+
+def submit_example(example_message: str, history, runtime_mode):
+    """Runs a sidebar example as a real chat turn."""
+    yield from chat_response(example_message, history, runtime_mode)
 
 
 def reset_chat():
     """
     Limpia la conversación.
     """
+    clear_chat_history()
     return [], "", gr.update(visible=True), []
 
 
 def build_app() -> gr.Blocks:
     with gr.Blocks(title="Headline Booster") as demo:
-        chat_state = gr.State([])
+        initial_history = load_chat_history()
+        chat_state = gr.State(initial_history)
         with gr.Column(elem_id="headline-app"):
             with gr.Row(elem_id="headline-layout"):
                 with gr.Column(elem_id="sidebar", scale=0, min_width=280):
@@ -488,12 +593,24 @@ def build_app() -> gr.Blocks:
                         </div>
                         <div class="sidebar-card">
                           <div class="sidebar-title">Conversaciones de ejemplo</div>
-                          <div class="example-convo">Taller de Diseño Humano</div>
-                          <div class="example-convo">Curso de Copywriting</div>
-                          <div class="example-convo">Web para Coaches</div>
-                          <div class="example-convo">Mentoría para Emprendedoras</div>
                         </div>
                         """
+                    )
+                    example_human_design = gr.Button(
+                        "Taller de Diseño Humano",
+                        elem_classes="example-button",
+                    )
+                    example_copywriting = gr.Button(
+                        "Curso de Copywriting",
+                        elem_classes="example-button",
+                    )
+                    example_coaches = gr.Button(
+                        "Web para Coaches",
+                        elem_classes="example-button",
+                    )
+                    example_mentorship = gr.Button(
+                        "Mentoría para Emprendedoras",
+                        elem_classes="example-button",
                     )
                 with gr.Column(elem_id="main-panel", scale=1):
                     gr.HTML(
@@ -534,10 +651,10 @@ def build_app() -> gr.Blocks:
                           </div>
                         </section>
                         """,
-                        visible=True,
+                        visible=len(initial_history) == 0,
                     )
                     chatbot = gr.Chatbot(
-                        value=[],
+                        value=initial_history,
                         elem_id="chatbot",
                         show_label=False,
                         height=220,
@@ -567,6 +684,26 @@ def build_app() -> gr.Blocks:
             outputs=[chatbot, message, welcome, chat_state],
         )
         new_chat.click(reset_chat, outputs=[chatbot, message, welcome, chat_state])
+        example_human_design.click(
+            partial(submit_example, EXAMPLE_PROMPTS["Taller de Diseño Humano"]),
+            inputs=[chat_state, runtime_mode],
+            outputs=[chatbot, message, welcome, chat_state],
+        )
+        example_copywriting.click(
+            partial(submit_example, EXAMPLE_PROMPTS["Curso de Copywriting"]),
+            inputs=[chat_state, runtime_mode],
+            outputs=[chatbot, message, welcome, chat_state],
+        )
+        example_coaches.click(
+            partial(submit_example, EXAMPLE_PROMPTS["Web para Coaches"]),
+            inputs=[chat_state, runtime_mode],
+            outputs=[chatbot, message, welcome, chat_state],
+        )
+        example_mentorship.click(
+            partial(submit_example, EXAMPLE_PROMPTS["Mentoría para Emprendedoras"]),
+            inputs=[chat_state, runtime_mode],
+            outputs=[chatbot, message, welcome, chat_state],
+        )
 
     return demo
 

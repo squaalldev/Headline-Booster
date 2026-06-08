@@ -118,6 +118,25 @@
   font-size: 14px;
 }
 .example-convo:hover { border-color: rgba(255, 248, 237, .18); background: rgba(255,255,255,.12); }
+.example-button button {
+  width: 100% !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  padding: 11px 12px !important;
+  border-radius: 15px !important;
+  margin: 4px 0 !important;
+  background: rgba(255, 255, 255, .08) !important;
+  border: 1px solid transparent !important;
+  color: rgba(255, 250, 242, .92) !important;
+  font-weight: 750 !important;
+  font-size: 14px !important;
+  box-shadow: none !important;
+}
+.example-button button:hover {
+  border-color: rgba(255, 248, 237, .18) !important;
+  background: rgba(255, 255, 255, .12) !important;
+  transform: translateY(-1px);
+}
 
 #main-panel { padding: 0; background: rgba(255, 252, 247, 0.92); min-width: 0; }
 .topbar {
