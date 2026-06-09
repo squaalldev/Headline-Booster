@@ -18,6 +18,16 @@ The repository should keep `main` and `codex` pointing to the same final commit 
 | `b1f3f74` | Migrate repo to Headline Booster Gradio Space — add Gradio app and remove legacy backend/frontend | Codex-assisted migration from the previous React/FastAPI/Supabase product to a focused Gradio Space with mock generation, Tiny Titan model runtime wiring, custom frontend CSS, Hugging Face README metadata, chatbot interaction flow, performance defaults, dark chat frontend, and documentation. |
 | `HEAD` | Experimental model X-ray analysis mode | Adds `ANALYSIS_MODE` so the app can use deterministic rules, validated model-generated X-ray analysis, or a hybrid fallback; updates the prompt to return compact diagnosis, missing elements, versions, winner, and rationale in one JSON while preserving backend validation. Use `git log --oneline -1` for the exact hash because embedding the current commit hash in this same file would change that hash. |
 
+
+## Fix — Normalize model headline proposals
+
+- Corregido un bug donde las propuestas de titulares podían mostrarse como diccionarios en el frontend.
+- Se agregó normalización para que `versiones` siempre sea una lista de strings limpios.
+- Se reforzó el prompt para que el modelo devuelva `versiones` como strings, no objetos.
+- Se mantiene compatibilidad con `ANALYSIS_MODE` `rules`/`model`/`hybrid`.
+- Se conserva la estructura JSON esperada por el frontend.
+- Archivos afectados: `app.py`, `docs/COMMIT_LOG.md`.
+
 ## Codex evidence checklist
 
 - Real code changes were made in `app.py`.

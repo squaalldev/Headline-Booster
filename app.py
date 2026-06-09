@@ -130,6 +130,8 @@ REGLAS:
 - No menciones fórmulas ni frameworks.
 - No uses markdown.
 - Responde SOLO JSON válido.
+- El campo "versiones" debe ser una lista de 3 strings. No uses objetos dentro de "versiones". No incluyas "version", "tipo", "por_que_gana" ni explicaciones dentro de cada versión.
+- Si recibes diagnostico, problema_principal o falta, úsalos como guía: baja claridad corrige claridad, bajo deseo eleva deseo, baja especificidad concreta más, baja diferenciacion crea un ángulo propio.
 
 ANÁLISIS RAYOS X:
 Evalúa el titular con 4 criterios de 0 a 100:
@@ -150,7 +152,7 @@ CREA EXACTAMENTE 3 VERSIONES:
 Elige el ganador por fuerza general: claridad + deseo + curiosidad + credibilidad.
 
 FORMATO:
-{"diagnostico":{"claridad":0,"deseo":0,"especificidad":0,"diferenciacion":0},"problema_principal":"","falta":["","",""],"versiones":["","",""],"ganador_numero":1,"por_que_gana":""}
+{"diagnostico":{"claridad":0,"deseo":0,"especificidad":0,"diferenciacion":0},"problema_principal":"","falta":["","",""],"versiones":["titular 1","titular 2","titular 3"],"ganador_numero":1,"por_que_gana":""}
 """.strip()
 
 
@@ -399,7 +401,8 @@ def generate_proposals(headline: str) -> dict[str, Any]:
 
 def choose_winner(headline: str, versiones: list[str], usage: str) -> dict[str, Any]:
     titular = clean_headline(headline)
-    clean_versions = [str(item).strip() for item in versiones if str(item).strip()][:3]
+    clean_versions = [extract_version_text(item) for item in versiones]
+    clean_versions = [item for item in clean_versions if item][:3]
     if not titular:
         raise ValueError("headline is required")
     if len(clean_versions) < 3:
@@ -487,8 +490,20 @@ def mock_model_payload(headline: str) -> dict[str, Any]:
     }
 
 
-def build_model_prompt(headline: str) -> str:
-    return json.dumps({"titular_original": headline}, ensure_ascii=False)
+def build_model_prompt(
+    headline: str,
+    diagnostico: dict[str, int] | None = None,
+    problema_principal: str | None = None,
+    falta: list[str] | None = None,
+) -> str:
+    payload: dict[str, Any] = {"titular_original": headline}
+    if diagnostico is not None:
+        payload["diagnostico"] = diagnostico
+    if problema_principal:
+        payload["problema_principal"] = problema_principal
+    if falta:
+        payload["falta"] = falta[:4]
+    return json.dumps(payload, ensure_ascii=False)
 
 
 @lru_cache(maxsize=1)
@@ -520,9 +535,14 @@ def extract_json_object(text: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
-def _generate_model_payload(headline: str) -> dict[str, Any]:
+def _generate_model_payload(
+    headline: str,
+    diagnostico: dict[str, int] | None = None,
+    problema_principal: str | None = None,
+    falta: list[str] | None = None,
+) -> dict[str, Any]:
     tokenizer, model, torch = get_tiny_model()
-    user_prompt = build_model_prompt(headline)
+    user_prompt = build_model_prompt(headline, diagnostico, problema_principal, falta)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
@@ -556,17 +576,29 @@ def maybe_gpu(func):
 generate_model_payload = maybe_gpu(_generate_model_payload)
 
 
+def extract_version_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in ("version", "titular", "headline", "text", "texto"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+    return str(item).strip()
+
+
 def validate_model_payload(candidate: dict[str, Any], headline: str) -> dict[str, Any]:
     fallback = mock_model_payload(headline)
     raw_versions = candidate.get("versiones") if isinstance(candidate, dict) else None
     versions: list[str] = []
     for item in raw_versions or []:
-        version = str(item).strip().strip('"')
+        version = extract_version_text(item).strip().strip('"')
         if not version:
             continue
         lower = version.lower()
-        forbidden_tokens = ("aida", "pas", "storybrand", "4ps", "fab", "copywriting")
-        visible_templates = ("el secreto detrás", "razones por las que", "x razones", "deja de [", "aprende a [", "¿y si [")
+        forbidden_tokens = ("aida", "pas", "storybrand", "4ps", "fab", "copywriting", "por_que_gana")
+        visible_templates = ("el secreto detrás", "razones por las que", "x razones", "deja de [", "aprende a [", "¿y si [", "{'version':", '{"version":')
         if any(token in lower for token in forbidden_tokens + visible_templates):
             continue
         if "[" in version or "]" in version or len(version) > 180:
@@ -664,12 +696,17 @@ def validate_full_model_payload(candidate: dict[str, Any], headline: str) -> dic
     }
 
 
-def model_or_mock_payload(headline: str) -> tuple[dict[str, Any], str]:
+def model_or_mock_payload(
+    headline: str,
+    diagnostico: dict[str, int] | None = None,
+    problema_principal: str | None = None,
+    falta: list[str] | None = None,
+) -> tuple[dict[str, Any], str]:
     if not should_use_real_model():
         return validate_model_payload(mock_model_payload(headline), headline), "mock"
 
     try:
-        model_payload = generate_model_payload(headline)
+        model_payload = generate_model_payload(headline, diagnostico, problema_principal, falta)
         return validate_model_payload(model_payload, headline), "model"
     except Exception:
         return validate_model_payload(mock_model_payload(headline), headline), "mock"
@@ -681,7 +718,7 @@ def model_or_rules_analysis(headline: str) -> tuple[dict[str, Any], str]:
     fallback_falta = missing_elements(headline, fallback_diagnostico)
 
     if ANALYSIS_MODE == "rules" or not should_use_real_model():
-        generated, runtime = model_or_mock_payload(headline)
+        generated, runtime = model_or_mock_payload(headline, fallback_diagnostico, fallback_problem, fallback_falta)
         return {
             "diagnostico": fallback_diagnostico,
             "problema_principal": fallback_problem,
@@ -692,7 +729,7 @@ def model_or_rules_analysis(headline: str) -> tuple[dict[str, Any], str]:
         }, runtime
 
     try:
-        model_payload = generate_model_payload(headline)
+        model_payload = generate_model_payload(headline, fallback_diagnostico, fallback_problem, fallback_falta)
         return validate_full_model_payload(model_payload, headline), "model"
     except Exception:
         generated = validate_model_payload(mock_model_payload(headline), headline)
