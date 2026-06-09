@@ -56,6 +56,7 @@ This keeps the app functional during local development and during Space cold sta
 
 - Added `gradio.Server` backend/API mode in `app.py`.
 - Added a short JSON-only model prompt.
+- Updated the prompt so copywriting frameworks guide strategy internally without becoming visible templates.
 - Added deterministic diagnosis scoring.
-- Added validation and fallback completion for model output.
+- Added validation and fallback completion for model output, including guards against framework or bracket-template leakage.
 - Added the custom `index.html` frontend that calls the backend API.

@@ -111,20 +111,29 @@ CURIOSITY_MARKERS = {"?", "¿", "secreto", "error", "mito", "verdad", "nadie", "
 SYSTEM_PROMPT = """
 Eres Headline Booster AI, copywriter experto en mejorar titulares, hooks y líneas de asunto en español.
 
+BASE DE COPY:
+Usa fórmulas y principios de copywriting como AIDA, PAS, BAB/ADP, 4Ps, FAB, 4U, StoryBrand, curiosity gap, reframe, contraste, beneficio vs característica, especificidad, emocionalidad, claridad y curiosidad.
+
 OBJETIVO:
-Convertir un titular débil en 3 versiones claras, creíbles y más atractivas.
+Convertir un titular débil en 3 versiones más claras, creíbles, atractivas y naturales.
 
 REGLAS:
 - Mejora el titular existente; no inventes otra oferta.
-- Sé breve, natural y específico.
-- Evita frases genéricas o exageradas.
+- Usa fórmulas de copywriting como criterio estratégico interno, no como plantillas visibles.
+- No rellenes moldes literales.
+- Evita frases genéricas, exageradas o robóticas.
+- Sé breve, específico, natural y persuasivo.
+- Cada versión debe tener un ángulo distinto.
 - No expliques las versiones.
+- No menciones fórmulas ni frameworks.
 - Responde SOLO JSON válido.
 
-CREA EXACTAMENTE 3 VERSIONES USANDO ESTAS FÓRMULAS:
-1. Clara/directa = resultado deseado + mecanismo o tema.
-2. Emocional = síntoma o frustración + alivio/deseo.
-3. Curiosa = pregunta, contraste o secreto + tensión.
+CREA EXACTAMENTE 3 VERSIONES:
+1. Una versión más clara/directa: prioriza claridad, beneficio, especificidad y credibilidad.
+2. Una versión más emocional: prioriza problema, deseo, alivio, identificación o transformación.
+3. Una versión más curiosa/diferenciada: prioriza curiosidad, contraste, reframe, tensión o patrón de interrupción.
+
+Elige el ganador por fuerza general: claridad + deseo + curiosidad + credibilidad.
 
 FORMATO:
 {"versiones":["","",""],"ganador_numero":1,"por_que_gana":""}
@@ -411,25 +420,51 @@ def headline_topic(headline: str) -> str:
     lowered = text.lower()
     for prefix in WEAK_PREFIXES:
         if lowered.startswith(prefix):
-            return text[len(prefix) :].strip(" :.-") or text
+            text = text[len(prefix) :].strip(" :.-") or text
+            break
+    if text.lower().startswith("a "):
+        text = text[2:].strip()
     return text.strip(" :.-") or "tu idea"
 
 
+def _title_case_topic(topic: str) -> str:
+    if not topic:
+        return "Tu idea"
+    return topic[0].upper() + topic[1:]
+
+
 def mock_model_payload(headline: str) -> dict[str, Any]:
-    """Generate varied safe fallback copy for any weak headline."""
-    original = clean_headline(headline)
-    topic = headline_topic(original)
-    short_topic = topic[:90]
+    """Fallback copy using strategic angles without visible rigid templates."""
+    topic = headline_topic(headline)[:90]
+    display_topic = _title_case_topic(topic)
+    lower_topic = topic.lower()
+    variant = sum(ord(char) for char in topic) % 3
+
+    clear_options = [
+        f"{display_topic} con una promesa clara y fácil de elegir",
+        f"{display_topic} para avanzar con más claridad desde el primer paso",
+        f"{display_topic} explicado de forma simple, útil y aplicable",
+    ]
+    emotional_options = [
+        f"Menos dudas, más confianza para empezar con {lower_topic}",
+        f"La forma más simple de sentir avance real con {lower_topic}",
+        f"Convierte la confusión alrededor de {lower_topic} en claridad práctica",
+    ]
+    curious_options = [
+        f"Lo que cambia cuando {lower_topic} deja de ser solo una idea",
+        f"La diferencia entre conocer {lower_topic} y usarlo de verdad",
+        f"El giro que hace que {lower_topic} se vuelva más claro y útil",
+    ]
 
     versions = [
-        f"{short_topic}: consigue un resultado más claro sin complicarte",
-        f"Deja de comunicar {short_topic.lower()} como algo genérico y conviértelo en una promesa que se sienta deseable",
-        f"¿Y si {short_topic.lower()} fuera justo el cambio que tu audiencia necesita para avanzar?",
+        clear_options[variant],
+        emotional_options[(variant + 1) % 3],
+        curious_options[(variant + 2) % 3],
     ]
     return {
         "versiones": versions,
         "ganador_numero": 1,
-        "por_que_gana": "Gana porque comunica el tema con una promesa más clara, directa y fácil de entender en pocos segundos.",
+        "por_que_gana": "Gana porque combina claridad, beneficio y credibilidad sin sonar exagerado.",
     }
 
 
@@ -512,7 +547,19 @@ generate_model_payload = maybe_gpu(_generate_model_payload)
 def validate_model_payload(candidate: dict[str, Any], headline: str) -> dict[str, Any]:
     fallback = mock_model_payload(headline)
     raw_versions = candidate.get("versiones") if isinstance(candidate, dict) else None
-    versions = [str(item).strip() for item in raw_versions or [] if str(item).strip()]
+    versions: list[str] = []
+    for item in raw_versions or []:
+        version = str(item).strip().strip('"')
+        if not version:
+            continue
+        lower = version.lower()
+        forbidden_tokens = ("aida", "pas", "storybrand", "4ps", "fab", "copywriting")
+        visible_templates = ("el secreto detrás", "razones por las que", "x razones", "deja de [", "aprende a [", "¿y si [")
+        if any(token in lower for token in forbidden_tokens + visible_templates):
+            continue
+        if "[" in version or "]" in version or len(version) > 180:
+            continue
+        versions.append(version)
 
     if len(versions) < 3:
         versions = (versions + fallback["versiones"])[:3]
@@ -527,8 +574,10 @@ def validate_model_payload(candidate: dict[str, Any], headline: str) -> dict[str
         winner = fallback["ganador_numero"]
 
     reason = str(candidate.get("por_que_gana") or "").strip()
-    if len(reason) < 12:
+    if len(reason) < 12 or any(token in reason.lower() for token in ("aida", "pas", "storybrand", "4ps", "fab")):
         reason = fallback["por_que_gana"]
+    if len(reason) > 220:
+        reason = reason[:217].rstrip() + "..."
 
     return {"versiones": versions, "ganador_numero": winner, "por_que_gana": reason}
 
