@@ -145,9 +145,11 @@ Luego detecta:
 - falta: lista breve de 3 a 4 elementos.
 
 CREA EXACTAMENTE 3 VERSIONES:
-1. Una versión más clara/directa.
-2. Una versión más emocional.
-3. Una versión más curiosa/diferenciada.
+1. Versión clara/directa: usa internamente FAB, 4U, 4Ps, beneficio vs característica y StoryBrand. Prioriza claridad, beneficio, especificidad y credibilidad para que la persona entienda rápido qué obtiene y por qué importa.
+2. Versión emocional: usa internamente PAS, BAB/ADP, StoryBrand, contraste emocional y problema → deseo. Conecta con frustración, tensión, deseo, alivio o una situación emocional reconocible.
+3. Versión curiosa/diferenciada: usa internamente AIDA, curiosity gap, reframe, contraste, patrón de interrupción y Pre-Suasion. Abre una pregunta mental, muestra un ángulo distinto o despierta curiosidad.
+
+Regla clave: las fórmulas guían la escritura, pero nunca deben aparecer en el resultado. No escribas “AIDA:”, “PAS:”, nombres de fórmulas, ni titulares con huecos tipo “[resultado]” o “[método]”.
 
 Elige el ganador por fuerza general: claridad + deseo + curiosidad + credibilidad.
 
@@ -597,7 +599,7 @@ def validate_model_payload(candidate: dict[str, Any], headline: str) -> dict[str
         if not version:
             continue
         lower = version.lower()
-        forbidden_tokens = ("aida", "pas", "storybrand", "4ps", "fab", "copywriting", "por_que_gana")
+        forbidden_tokens = ("aida", "pas", "bab", "adp", "storybrand", "4ps", "4u", "fab", "pre-suasion", "copywriting", "por_que_gana")
         visible_templates = ("el secreto detrás", "razones por las que", "x razones", "deja de [", "aprende a [", "¿y si [", "{'version':", '{"version":')
         if any(token in lower for token in forbidden_tokens + visible_templates):
             continue
@@ -618,7 +620,7 @@ def validate_model_payload(candidate: dict[str, Any], headline: str) -> dict[str
         winner = fallback["ganador_numero"]
 
     reason = str(candidate.get("por_que_gana") or "").strip()
-    if len(reason) < 12 or any(token in reason.lower() for token in ("aida", "pas", "storybrand", "4ps", "fab")):
+    if len(reason) < 12 or any(token in reason.lower() for token in ("aida", "pas", "bab", "adp", "storybrand", "4ps", "4u", "fab", "pre-suasion")):
         reason = fallback["por_que_gana"]
     if len(reason) > 220:
         reason = reason[:217].rstrip() + "..."
@@ -643,7 +645,7 @@ def validate_diagnostico(candidate: Any, fallback: dict[str, int]) -> dict[str, 
 
 def validate_brief_text(value: Any, fallback: str, max_length: int = 180) -> str:
     text = re.sub(r"\s+", " ", str(value or "").strip())
-    forbidden = ("aida", "pas", "storybrand", "4ps", "fab", "copywriting", "```", "#")
+    forbidden = ("aida", "pas", "bab", "adp", "storybrand", "4ps", "4u", "fab", "pre-suasion", "copywriting", "```", "#")
     if len(text) < 8 or any(token in text.lower() for token in forbidden):
         return fallback
     if len(text) > max_length:

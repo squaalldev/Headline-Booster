@@ -28,6 +28,16 @@ The repository should keep `main` and `codex` pointing to the same final commit 
 - Se conserva la estructura JSON esperada por el frontend.
 - Archivos afectados: `app.py`, `docs/COMMIT_LOG.md`.
 
+
+## Prompt — Strategic copywriting formulas per version
+
+- Se reforzó el prompt para que cada una de las tres versiones nazca de familias de fórmulas de copywriting distintas.
+- La versión clara/directa prioriza claridad, beneficio, especificidad y credibilidad.
+- La versión emocional prioriza problema, deseo, alivio y contraste emocional.
+- La versión curiosa/diferenciada prioriza curiosity gap, reframe, contraste y patrón de interrupción.
+- Las fórmulas siguen siendo criterio estratégico interno y no deben aparecer en los titulares.
+- Archivos afectados: `app.py`, `docs/COMMIT_LOG.md`.
+
 ## Codex evidence checklist
 
 - Real code changes were made in `app.py`.
