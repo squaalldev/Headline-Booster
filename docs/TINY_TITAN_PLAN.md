@@ -16,6 +16,7 @@ This model is instruction-tuned and small enough for the Build Small / Tiny Tita
 MODEL_ID=Qwen/Qwen2.5-1.5B-Instruct
 MAX_NEW_TOKENS=280
 USE_REAL_MODEL=auto
+ANALYSIS_MODE=hybrid
 ```
 
 Runtime rules:
@@ -23,22 +24,21 @@ Runtime rules:
 - `USE_REAL_MODEL=true`: load and use the Hugging Face model.
 - `USE_REAL_MODEL=false`: use the deterministic mock fallback.
 - `USE_REAL_MODEL=auto`: use the model when Hugging Face Space environment variables are present; otherwise use mock mode locally.
+- `ANALYSIS_MODE=rules`: deterministic Python X-ray.
+- `ANALYSIS_MODE=model`: experimental model-generated X-ray, validated by Python.
+- `ANALYSIS_MODE=hybrid`: default; attempts model analysis only when real-model runtime is available and falls back safely.
 
 ## Why this fits the app
 
 The product is no longer a generic headline generator. It is a narrow optimizer:
 
 ```text
-weak headline → deterministic diagnosis → 3 improved versions → mini battle → winner
+weak headline → compact X-ray diagnosis → 3 improved versions → mini battle → winner
 ```
 
-The model only receives a compact JSON user prompt with the original headline, the detected main problem, and the missing elements. It only generates:
+In experimental model-analysis mode, the model receives only a compact JSON user prompt with the original headline. It may generate the compact X-ray, missing elements, three improved versions, a winner number, and a short explanation in one JSON object.
 
-- three improved versions;
-- a winner number from 1 to 3;
-- a short explanation of why that winner is strongest.
-
-Everything else is controlled by backend code, which makes the app more stable for a small model.
+The backend still validates every field and falls back to deterministic rules or mock copy when the model output is missing, invalid, too long, or structurally unsafe.
 
 ## Fallback plan
 
@@ -58,5 +58,6 @@ This keeps the app functional during local development and during Space cold sta
 - Added a short JSON-only model prompt.
 - Updated the prompt so copywriting frameworks guide strategy internally without becoming visible templates.
 - Added deterministic diagnosis scoring.
-- Added validation and fallback completion for model output, including guards against framework or bracket-template leakage.
+- Added `ANALYSIS_MODE` for rules, model, or hybrid X-ray analysis.
+- Added validation and fallback completion for model output, including guards against invalid scores, short/long text, framework leakage, and bracket-template leakage.
 - Added the custom `index.html` frontend that calls the backend API.

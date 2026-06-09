@@ -104,7 +104,7 @@ Response shape is stable:
     └── TINY_TITAN_PLAN.md
 ```
 
-The visual interface is no longer built with `gr.Blocks()`. `index.html` owns the UI and calls `POST /api/improve_headline` with `fetch()`. Browser history is stored only in `localStorage`; the backend does not persist sessions.
+The visual interface is no longer built with `gr.Blocks()`. `index.html` owns the UI and calls the step APIs with `fetch()` (`/api/analyze_headline`, `/api/create_proposals`, and `/api/choose_winner`). Browser history is stored only in `localStorage`; the backend does not persist sessions.
 
 ## Hackathon alignment
 
@@ -121,6 +121,7 @@ The visual interface is no longer built with `gr.Blocks()`. `index.html` owns th
 MODEL_ID=Qwen/Qwen2.5-1.5B-Instruct
 MAX_NEW_TOKENS=280
 USE_REAL_MODEL=auto
+ANALYSIS_MODE=hybrid
 ```
 
 Runtime rules:
@@ -128,6 +129,9 @@ Runtime rules:
 - `USE_REAL_MODEL=true`: use the Hugging Face model.
 - `USE_REAL_MODEL=false`: use the mock fallback.
 - `USE_REAL_MODEL=auto`: use the model on Hugging Face Spaces and mock locally.
+- `ANALYSIS_MODE=rules`: keep the deterministic Python X-ray.
+- `ANALYSIS_MODE=model`: ask the model for the compact X-ray and headline proposals, then validate everything in Python.
+- `ANALYSIS_MODE=hybrid`: default experimental mode; try model analysis when the model runtime is available and fall back to rules/mock when needed.
 
 ## Source code
 

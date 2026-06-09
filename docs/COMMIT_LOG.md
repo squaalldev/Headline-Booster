@@ -16,7 +16,7 @@ The repository should keep `main` and `codex` pointing to the same final commit 
 | --- | --- | --- |
 | `497c903` | Primer guardado del proyecto | Original repository checkpoint before the Headline Booster migration. |
 | `b1f3f74` | Migrate repo to Headline Booster Gradio Space — add Gradio app and remove legacy backend/frontend | Codex-assisted migration from the previous React/FastAPI/Supabase product to a focused Gradio Space with mock generation, Tiny Titan model runtime wiring, custom frontend CSS, Hugging Face README metadata, chatbot interaction flow, performance defaults, dark chat frontend, and documentation. |
-| `HEAD` | Strategic copywriting prompt without visible templates | Keeps the deterministic X-ray diagnosis in the backend, updates the small-model prompt to use copywriting frameworks as internal strategy only, validates against template/framework leakage, and improves the mock fallback so the three versions sound less like rigid molds. Use `git log --oneline -1` for the exact hash because embedding the current commit hash in this same file would change that hash. |
+| `HEAD` | Experimental model X-ray analysis mode | Adds `ANALYSIS_MODE` so the app can use deterministic rules, validated model-generated X-ray analysis, or a hybrid fallback; updates the prompt to return compact diagnosis, missing elements, versions, winner, and rationale in one JSON while preserving backend validation. Use `git log --oneline -1` for the exact hash because embedding the current commit hash in this same file would change that hash. |
 
 ## Codex evidence checklist
 

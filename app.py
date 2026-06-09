@@ -27,6 +27,9 @@ INDEX_PATH = Path(__file__).with_name("index.html")
 MODEL_ID = os.getenv("MODEL_ID", "Qwen/Qwen2.5-1.5B-Instruct")
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "280"))
 USE_REAL_MODEL = os.getenv("USE_REAL_MODEL", "auto").strip().lower()
+ANALYSIS_MODE = os.getenv("ANALYSIS_MODE", "hybrid").strip().lower()
+if ANALYSIS_MODE not in {"rules", "model", "hybrid"}:
+    ANALYSIS_MODE = "hybrid"
 IS_HUGGING_FACE_SPACE = bool(
     os.getenv("SPACE_ID") or os.getenv("SPACE_HOST") or os.getenv("HF_SPACE_ID")
 )
@@ -115,7 +118,7 @@ BASE DE COPY:
 Usa fórmulas y principios de copywriting como AIDA, PAS, BAB/ADP, 4Ps, FAB, 4U, StoryBrand, curiosity gap, reframe, contraste, beneficio vs característica, especificidad, emocionalidad, claridad y curiosidad.
 
 OBJETIVO:
-Convertir un titular débil en 3 versiones más claras, creíbles, atractivas y naturales.
+Analizar un titular débil y convertirlo en 3 versiones más claras, creíbles, atractivas y naturales.
 
 REGLAS:
 - Mejora el titular existente; no inventes otra oferta.
@@ -123,20 +126,31 @@ REGLAS:
 - No rellenes moldes literales.
 - Evita frases genéricas, exageradas o robóticas.
 - Sé breve, específico, natural y persuasivo.
-- Cada versión debe tener un ángulo distinto.
-- No expliques las versiones.
+- No expliques las fórmulas.
 - No menciones fórmulas ni frameworks.
+- No uses markdown.
 - Responde SOLO JSON válido.
 
+ANÁLISIS RAYOS X:
+Evalúa el titular con 4 criterios de 0 a 100:
+1. claridad: si se entiende rápido y comunica una promesa reconocible.
+2. deseo: si despierta interés emocional, deseo, alivio o identificación.
+3. especificidad: si aterriza audiencia, resultado, situación o detalle concreto.
+4. diferenciacion: si tiene curiosidad, contraste, reframe o un ángulo propio.
+
+Luego detecta:
+- problema_principal: una frase breve.
+- falta: lista breve de 3 a 4 elementos.
+
 CREA EXACTAMENTE 3 VERSIONES:
-1. Una versión más clara/directa: prioriza claridad, beneficio, especificidad y credibilidad.
-2. Una versión más emocional: prioriza problema, deseo, alivio, identificación o transformación.
-3. Una versión más curiosa/diferenciada: prioriza curiosidad, contraste, reframe, tensión o patrón de interrupción.
+1. Una versión más clara/directa.
+2. Una versión más emocional.
+3. Una versión más curiosa/diferenciada.
 
 Elige el ganador por fuerza general: claridad + deseo + curiosidad + credibilidad.
 
 FORMATO:
-{"versiones":["","",""],"ganador_numero":1,"por_que_gana":""}
+{"diagnostico":{"claridad":0,"deseo":0,"especificidad":0,"diferenciacion":0},"problema_principal":"","falta":["","",""],"versiones":["","",""],"ganador_numero":1,"por_que_gana":""}
 """.strip()
 
 
@@ -152,6 +166,9 @@ class WinnerRequest(BaseModel):
     headline: str
     versiones: list[str]
     usage: str
+
+
+_MODEL_ANALYSIS_CACHE: dict[str, tuple[dict[str, Any], str]] = {}
 
 
 def should_use_real_model() -> bool:
@@ -339,12 +356,16 @@ def analyze_headline(headline: str) -> dict[str, Any]:
     titular = clean_headline(headline)
     if not titular:
         raise ValueError("headline is required")
-    diagnostico = diagnose_headline(titular)
-    falta = missing_elements(titular, diagnostico)
+    payload, runtime = cached_model_or_rules_analysis(titular)
+    diagnostico = payload["diagnostico"]
+    falta = payload["falta"]
     return {
         "ok": True,
         "app_build": APP_BUILD,
         "step": "analisis",
+        "runtime": runtime,
+        "analysis_mode": ANALYSIS_MODE,
+        "model_id": MODEL_ID,
         "titular_original": titular,
         "diagnostico": diagnostico,
         "radiografia": {
@@ -352,7 +373,7 @@ def analyze_headline(headline: str) -> dict[str, Any]:
             "no_tiene": headline_absences(titular, diagnostico),
             "le_hace_falta": falta,
         },
-        "problema_principal": detect_main_problem(titular, diagnostico),
+        "problema_principal": payload["problema_principal"],
         "falta": falta,
         "pregunta_siguiente": "¿Quieres que cree tres propuestas de titulares mejorados a partir de esta radiografía?",
     }
@@ -362,18 +383,16 @@ def generate_proposals(headline: str) -> dict[str, Any]:
     titular = clean_headline(headline)
     if not titular:
         raise ValueError("headline is required")
-    diagnostico = diagnose_headline(titular)
-    problema = detect_main_problem(titular, diagnostico)
-    falta = missing_elements(titular, diagnostico)
-    generated, runtime = model_or_mock_payload(titular, problema, falta)
+    payload, runtime = cached_model_or_rules_analysis(titular)
     return {
         "ok": True,
         "app_build": APP_BUILD,
         "step": "propuestas",
         "runtime": runtime,
+        "analysis_mode": ANALYSIS_MODE,
         "model_id": MODEL_ID,
         "titular_original": titular,
-        "versiones": generated["versiones"],
+        "versiones": payload["versiones"],
         "pregunta_siguiente": "¿Para qué lo quieres o dónde lo vas a usar? Así puedo ayudarte a escoger el mejor.",
     }
 
@@ -468,15 +487,8 @@ def mock_model_payload(headline: str) -> dict[str, Any]:
     }
 
 
-def build_model_prompt(headline: str, problema_principal: str, falta: list[str]) -> str:
-    return json.dumps(
-        {
-            "titular_original": headline,
-            "problema": problema_principal,
-            "falta": falta[:4],
-        },
-        ensure_ascii=False,
-    )
+def build_model_prompt(headline: str) -> str:
+    return json.dumps({"titular_original": headline}, ensure_ascii=False)
 
 
 @lru_cache(maxsize=1)
@@ -508,9 +520,9 @@ def extract_json_object(text: str) -> dict[str, Any]:
     return json.loads(match.group(0))
 
 
-def _generate_model_payload(headline: str, problema_principal: str, falta: list[str]) -> dict[str, Any]:
+def _generate_model_payload(headline: str) -> dict[str, Any]:
     tokenizer, model, torch = get_tiny_model()
-    user_prompt = build_model_prompt(headline, problema_principal, falta)
+    user_prompt = build_model_prompt(headline)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
@@ -582,50 +594,158 @@ def validate_model_payload(candidate: dict[str, Any], headline: str) -> dict[str
     return {"versiones": versions, "ganador_numero": winner, "por_que_gana": reason}
 
 
-def model_or_mock_payload(
-    headline: str, problema_principal: str | None = None, falta: list[str] | None = None
-) -> tuple[dict[str, Any], str]:
-    problema = problema_principal or detect_main_problem(headline, diagnose_headline(headline))
-    faltantes = falta or missing_elements(headline, diagnose_headline(headline))
+def validate_diagnostico(candidate: Any, fallback: dict[str, int]) -> dict[str, int]:
+    if not isinstance(candidate, dict):
+        return fallback
+    validated: dict[str, int] = {}
+    for key in ("claridad", "deseo", "especificidad", "diferenciacion"):
+        try:
+            value = int(float(candidate[key]))
+        except (KeyError, TypeError, ValueError):
+            return fallback
+        if value < 0 or value > 100:
+            return fallback
+        validated[key] = value
+    return validated
 
+
+def validate_brief_text(value: Any, fallback: str, max_length: int = 180) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    forbidden = ("aida", "pas", "storybrand", "4ps", "fab", "copywriting", "```", "#")
+    if len(text) < 8 or any(token in text.lower() for token in forbidden):
+        return fallback
+    if len(text) > max_length:
+        return text[: max_length - 3].rstrip() + "..."
+    return text
+
+
+def validate_missing_list(candidate: Any, fallback: list[str]) -> list[str]:
+    if not isinstance(candidate, list):
+        return fallback[:4]
+    clean_items: list[str] = []
+    for item in candidate:
+        text = validate_brief_text(item, "", max_length=90)
+        if text and text not in clean_items and "[" not in text and "]" not in text:
+            clean_items.append(text)
+        if len(clean_items) >= 4:
+            break
+    if len(clean_items) < 3:
+        return fallback[:4]
+    return clean_items
+
+
+def validate_full_model_payload(candidate: dict[str, Any], headline: str) -> dict[str, Any]:
+    fallback_diagnostico = diagnose_headline(headline)
+    fallback_problem = detect_main_problem(headline, fallback_diagnostico)
+    fallback_falta = missing_elements(headline, fallback_diagnostico)
+    generated = validate_model_payload(candidate if isinstance(candidate, dict) else {}, headline)
+
+    diagnostico = validate_diagnostico(
+        candidate.get("diagnostico") if isinstance(candidate, dict) else None,
+        fallback_diagnostico,
+    )
+    problema = validate_brief_text(
+        candidate.get("problema_principal") if isinstance(candidate, dict) else None,
+        fallback_problem,
+        max_length=180,
+    )
+    falta = validate_missing_list(
+        candidate.get("falta") if isinstance(candidate, dict) else None,
+        fallback_falta,
+    )
+
+    return {
+        "diagnostico": diagnostico,
+        "problema_principal": problema,
+        "falta": falta,
+        "versiones": generated["versiones"],
+        "ganador_numero": generated["ganador_numero"],
+        "por_que_gana": generated["por_que_gana"],
+    }
+
+
+def model_or_mock_payload(headline: str) -> tuple[dict[str, Any], str]:
     if not should_use_real_model():
         return validate_model_payload(mock_model_payload(headline), headline), "mock"
 
     try:
-        model_payload = generate_model_payload(headline, problema, faltantes)
+        model_payload = generate_model_payload(headline)
         return validate_model_payload(model_payload, headline), "model"
     except Exception:
         return validate_model_payload(mock_model_payload(headline), headline), "mock"
+
+
+def model_or_rules_analysis(headline: str) -> tuple[dict[str, Any], str]:
+    fallback_diagnostico = diagnose_headline(headline)
+    fallback_problem = detect_main_problem(headline, fallback_diagnostico)
+    fallback_falta = missing_elements(headline, fallback_diagnostico)
+
+    if ANALYSIS_MODE == "rules" or not should_use_real_model():
+        generated, runtime = model_or_mock_payload(headline)
+        return {
+            "diagnostico": fallback_diagnostico,
+            "problema_principal": fallback_problem,
+            "falta": fallback_falta,
+            "versiones": generated["versiones"],
+            "ganador_numero": generated["ganador_numero"],
+            "por_que_gana": generated["por_que_gana"],
+        }, runtime
+
+    try:
+        model_payload = generate_model_payload(headline)
+        return validate_full_model_payload(model_payload, headline), "model"
+    except Exception:
+        generated = validate_model_payload(mock_model_payload(headline), headline)
+        return {
+            "diagnostico": fallback_diagnostico,
+            "problema_principal": fallback_problem,
+            "falta": fallback_falta,
+            "versiones": generated["versiones"],
+            "ganador_numero": generated["ganador_numero"],
+            "por_que_gana": generated["por_que_gana"],
+        }, "mock"
+
+
+def cached_model_or_rules_analysis(headline: str) -> tuple[dict[str, Any], str]:
+    cache_key = clean_headline(headline).lower()
+    if ANALYSIS_MODE != "rules" and cache_key in _MODEL_ANALYSIS_CACHE:
+        return _MODEL_ANALYSIS_CACHE[cache_key]
+    result, runtime = model_or_rules_analysis(headline)
+    if ANALYSIS_MODE != "rules":
+        if len(_MODEL_ANALYSIS_CACHE) >= 64:
+            _MODEL_ANALYSIS_CACHE.pop(next(iter(_MODEL_ANALYSIS_CACHE)))
+        _MODEL_ANALYSIS_CACHE[cache_key] = (result, runtime)
+    return result, runtime
+
+
+def build_full_response(titular: str, payload: dict[str, Any], runtime: str) -> dict[str, Any]:
+    versiones = payload["versiones"]
+    ganador_numero = payload["ganador_numero"]
+    ganador = versiones[ganador_numero - 1]
+    return {
+        "ok": True,
+        "app_build": APP_BUILD,
+        "runtime": runtime,
+        "analysis_mode": ANALYSIS_MODE,
+        "model_id": MODEL_ID,
+        "titular_original": titular,
+        "diagnostico": payload["diagnostico"],
+        "problema_principal": payload["problema_principal"],
+        "falta": payload["falta"],
+        "versiones": versiones,
+        "mini_battle": {"mas_claro": 1, "mas_emocional": 2, "mas_curioso": 3},
+        "ganador_numero": ganador_numero,
+        "ganador": ganador,
+        "por_que_gana": payload["por_que_gana"],
+    }
 
 
 def improve_headline(headline: str) -> dict[str, Any]:
     titular = clean_headline(headline)
     if not titular:
         raise ValueError("headline is required")
-
-    diagnostico = diagnose_headline(titular)
-    problema = detect_main_problem(titular, diagnostico)
-    falta = missing_elements(titular, diagnostico)
-    generated, runtime = model_or_mock_payload(titular, problema, falta)
-    versiones = generated["versiones"]
-    ganador_numero = generated["ganador_numero"]
-    ganador = versiones[ganador_numero - 1]
-
-    return {
-        "ok": True,
-        "app_build": APP_BUILD,
-        "runtime": runtime,
-        "model_id": MODEL_ID,
-        "titular_original": titular,
-        "diagnostico": diagnostico,
-        "problema_principal": problema,
-        "falta": falta,
-        "versiones": versiones,
-        "mini_battle": {"mas_claro": 1, "mas_emocional": 2, "mas_curioso": 3},
-        "ganador_numero": ganador_numero,
-        "ganador": ganador,
-        "por_que_gana": generated["por_que_gana"],
-    }
+    payload, runtime = cached_model_or_rules_analysis(titular)
+    return build_full_response(titular, payload, runtime)
 
 
 server = gr.Server(
@@ -648,6 +768,7 @@ def health() -> JSONResponse:
             "ok": True,
             "app_build": APP_BUILD,
             "runtime_mode": USE_REAL_MODEL,
+            "analysis_mode": ANALYSIS_MODE,
             "uses_model_now": should_use_real_model(),
             "model_id": MODEL_ID,
         }
